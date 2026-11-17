@@ -8,7 +8,7 @@ import com.rabbitmq.client.ConnectionFactory;
 public class SendOrder {
     public static void main(String[] args) throws Exception {
         if (args.length < 5) {
-            System.out.println("Usage: SendOrder <username> <port> <BUY|SELL> <quantity> <price> [symbol]");
+            System.out.println("Usage: SendOrder <username> <port> <BUY|SELL> <quantity> <price|MARKET> [symbol]");
             return;
         }
 
@@ -16,11 +16,20 @@ public class SendOrder {
         int port = Integer.parseInt(args[1]);
         String side = args[2].toUpperCase();
         int qty = Integer.parseInt(args[3]);
-        double price = Double.parseDouble(args[4]);
+        boolean market = args[4].equalsIgnoreCase("MARKET");
+        double price = market ? 0 : Double.parseDouble(args[4]);
         String symbol = args.length > 5 ? args[5].toUpperCase() : "XYZ";
 
         if (!side.equals("BUY") && !side.equals("SELL")) {
             System.out.println("Side must be BUY or SELL");
+            return;
+        }
+        if (qty <= 0) {
+            System.out.println("Quantity must be greater than 0");
+            return;
+        }
+        if (!market && price <= 0) {
+            System.out.println("Price must be greater than 0, or use MARKET");
             return;
         }
 
@@ -31,7 +40,9 @@ public class SendOrder {
         try (Connection conn = factory.newConnection();
              Channel channel = conn.createChannel()) {
             channel.queueDeclare("orders", true, false, false, null);
-            String json = new Gson().toJson(new Order(user, side, symbol, qty, price));
+            Order order = market ? Order.market(user, side, symbol, qty)
+                                 : new Order(user, side, symbol, qty, price);
+            String json = new Gson().toJson(order);
             channel.basicPublish("", "orders", null, json.getBytes());
             System.out.println("Sent: " + json);
         }
