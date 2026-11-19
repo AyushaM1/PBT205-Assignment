@@ -7,6 +7,7 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -26,8 +27,12 @@ public class Exchange {
 
         Gson gson = new Gson();
         Map<String, OrderBook> books = new HashMap<>();
+        // FR2: every trade is also saved to trades.csv and survives a restart.
+        TradeHistory history = new TradeHistory(Path.of("trades.csv"));
+        System.out.println("Loaded " + history.all().size() + " past trades from trades.csv");
 
         Consumer<Trade> publish = trade -> {
+            history.record(trade);
             try {
                 channel.basicPublish("trades", "", null, gson.toJson(trade).getBytes());
             } catch (IOException e) {
