@@ -36,16 +36,12 @@
       <version>5.11.4</version>
       <scope>test</scope>
     </dependency>
-<<<<<<< HEAD
-  </dependencies>
-=======
-      <dependency>
+    <dependency>
       <groupId>com.formdev</groupId>
       <artifactId>flatlaf</artifactId>
       <version>3.8</version>
     </dependency>
-</dependencies>
->>>>>>> origin/feature/dark-trading-dashboard
+  </dependencies>
 
   <build>
     <plugins>
