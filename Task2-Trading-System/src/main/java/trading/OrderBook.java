@@ -1,7 +1,11 @@
 package trading;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 
 /**
@@ -23,6 +27,7 @@ public class OrderBook {
     }
 
     private long counter = 0;
+    private String symbol = "";
     private final Consumer<Trade> onTrade;
 
     private final PriorityQueue<Resting> buys = new PriorityQueue<>(
@@ -37,7 +42,10 @@ public class OrderBook {
         this.onTrade = onTrade;
     }
 
-    public void handle(Order order) {
+    public synchronized void handle(Order order) {
+        if (symbol.isEmpty()) {
+            symbol = order.symbol();
+        }
         boolean isBuy = order.side().equals("BUY");
         PriorityQueue<Resting> opposite = isBuy ? sells : buys;
         int remaining = order.qty();
@@ -74,6 +82,51 @@ public class OrderBook {
         (isBuy ? buys : sells).add(rest);
         System.out.println("BOOK: waiting " + order.side() + " " + order.user() + " "
             + remaining + " @ " + order.price());
+    }
+
+
+    /** Waiting orders in the order they arrived, with the quantity still unfilled (FR1). */
+    public synchronized List<Order> openOrders() {
+        List<Resting> all = new ArrayList<>(buys);
+        all.addAll(sells);
+        all.sort(Comparator.comparingLong((Resting r) -> r.seq));
+        List<Order> out = new ArrayList<>();
+        for (Resting r : all) {
+            out.add(new Order(r.order.user(), r.order.side(), r.order.symbol(), r.remaining, r.order.price()));
+        }
+        return out;
+    }
+
+    /** Put saved orders back on the book without matching them (FR1). */
+    public synchronized void restore(List<Order> orders) {
+        for (Order o : orders) {
+            if (symbol.isEmpty()) {
+                symbol = o.symbol();
+            }
+            Resting rest = new Resting(o, counter++, o.qty());
+            (o.side().equals("BUY") ? buys : sells).add(rest);
+        }
+    }
+
+    /** Waiting quantity at each price, best price first (FR6). */
+    public synchronized BookSnapshot depth(int levels) {
+        return new BookSnapshot(symbol, levelsOf(buys, levels, true), levelsOf(sells, levels, false));
+    }
+
+    private List<BookSnapshot.Level> levelsOf(PriorityQueue<Resting> queue, int levels, boolean descending) {
+        TreeMap<Double, Integer> byPrice = new TreeMap<>(
+            descending ? Comparator.<Double>reverseOrder() : Comparator.<Double>naturalOrder());
+        for (Resting r : queue) {
+            byPrice.merge(r.order.price(), r.remaining, Integer::sum);
+        }
+        List<BookSnapshot.Level> out = new ArrayList<>();
+        for (Map.Entry<Double, Integer> e : byPrice.entrySet()) {
+            if (out.size() == levels) {
+                break;
+            }
+            out.add(new BookSnapshot.Level(e.getKey(), e.getValue()));
+        }
+        return out;
     }
 
     /** True if the incoming order can trade against the best waiting order. */

@@ -4,24 +4,25 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Saves the open order book to orderbook.csv so the Exchange can recover after a
+ * restart (FR1). Trades are saved separately by TradeHistory (FR2).
+ * Columns: user,side,symbol,qty,price
+ */
 public class Persistence {
-    private static final String ORDER_HEADER = "user,side,symbol,qty,price";
-    private static final String TRADE_HEADER = "time,symbol,qty,price,buyer,seller";
+    private static final String HEADER = "user,side,symbol,qty,price";
 
     private final Path ordersFile;
-    private final Path tradesFile;
 
     public Persistence(Path dir) {
         this.ordersFile = dir.resolve("orderbook.csv");
-        this.tradesFile = dir.resolve("trades.csv");
     }
 
     public synchronized void saveOrders(List<Order> orders) throws IOException {
-        StringBuilder sb = new StringBuilder(ORDER_HEADER).append(System.lineSeparator());
+        StringBuilder sb = new StringBuilder(HEADER).append(System.lineSeparator());
         for (Order o : orders) {
             sb.append(clean(o.user())).append(',')
               .append(o.side()).append(',')
@@ -41,7 +42,7 @@ public class Persistence {
         }
         try {
             for (String line : Files.readAllLines(ordersFile)) {
-                if (line.isBlank() || line.equals(ORDER_HEADER)) {
+                if (line.isBlank() || line.equals(HEADER)) {
                     continue;
                 }
                 String[] p = line.split(",", -1);
@@ -58,43 +59,6 @@ public class Persistence {
             System.out.println("Could not read " + ordersFile + ": " + e.getMessage());
         }
         return orders;
-    }
-
-    public synchronized void appendTrade(Trade t) throws IOException {
-        if (!Files.exists(tradesFile)) {
-            Files.writeString(tradesFile, TRADE_HEADER + System.lineSeparator());
-        }
-        String line = t.time() + "," + clean(t.symbol()) + "," + t.qty() + "," + t.price() + ","
-            + clean(t.buyer()) + "," + clean(t.seller()) + System.lineSeparator();
-        Files.writeString(tradesFile, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-    }
-
-    public synchronized List<Trade> loadTrades(int max) {
-        List<Trade> trades = new ArrayList<>();
-        if (!Files.exists(tradesFile)) {
-            return trades;
-        }
-        try {
-            for (String line : Files.readAllLines(tradesFile)) {
-                if (line.isBlank() || line.equals(TRADE_HEADER)) {
-                    continue;
-                }
-                String[] p = line.split(",", -1);
-                try {
-                    if (p.length != 6) {
-                        throw new NumberFormatException("wrong column count");
-                    }
-                    trades.add(new Trade(p[1], Integer.parseInt(p[2]), Double.parseDouble(p[3]),
-                        p[4], p[5], Long.parseLong(p[0])));
-                } catch (NumberFormatException e) {
-                    System.out.println("Skipping bad line in " + tradesFile + ": " + line);
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("Could not read " + tradesFile + ": " + e.getMessage());
-        }
-        int from = Math.max(0, trades.size() - max);
-        return new ArrayList<>(trades.subList(from, trades.size()));
     }
 
     private static String clean(String s) {

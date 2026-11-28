@@ -192,6 +192,7 @@ public class PriceBoard {
 
         LineChart chart = new LineChart();
         DepthPanel depth = new DepthPanel(new ArrayList<>(symbols));
+        OrderEntryPanel orderEntry = new OrderEntryPanel(new ArrayList<>(symbols));
         DateTimeFormatter clock = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
 
         SwingUtilities.invokeAndWait(() -> {
@@ -205,6 +206,7 @@ public class PriceBoard {
 
             JTabbedPane tabs = new JTabbedPane();
             tabs.addTab("Prices", split);
+            tabs.addTab("New order", orderEntry);
             tabs.addTab("Chart", chart);
             tabs.addTab("Order book", depth);
 
@@ -282,10 +284,13 @@ refreshCards.run();
             frame.setVisible(true);
         });
 
-        Persistence store = new Persistence(Path.of("."));
+        TradeHistory pastTrades = new TradeHistory(Path.of("trades.csv"));
         SwingUtilities.invokeLater(() -> {
-            for (Trade t : store.loadTrades(MAX_HISTORY)) {
+            java.util.List<Trade> all = pastTrades.all();
+            int from = Math.max(0, all.size() - MAX_HISTORY);
+            for (Trade t : all.subList(from, all.size())) {
                 showTrade(t, clock, latestModel, historyModel, rowOf, chart);
+                orderEntry.setLastPrice(t.symbol(), t.price());
             }
         });
 
@@ -307,14 +312,24 @@ refreshCards.run();
         DeliverCallback onTrade = (tag, delivery) -> {
             Trade trade = gson.fromJson(new String(delivery.getBody()), Trade.class);
             lastPrice.put(trade.symbol(), trade.price());
-            SwingUtilities.invokeLater(() ->
-                showTrade(trade, clock, latestModel, historyModel, rowOf, chart));
+            SwingUtilities.invokeLater(() -> {
+                showTrade(trade, clock, latestModel, historyModel, rowOf, chart);
+                orderEntry.setLastPrice(trade.symbol(), trade.price());
+            });
         };
 
         DeliverCallback onBook = (tag, delivery) -> {
             BookSnapshot snap = gson.fromJson(new String(delivery.getBody()), BookSnapshot.class);
             SwingUtilities.invokeLater(() -> depth.update(snap));
         };
+
+        Channel orderChannel = conn.createChannel();
+        orderChannel.queueDeclare("orders", true, false, false, null);
+        SwingUtilities.invokeLater(() -> orderEntry.setSender(order -> {
+            synchronized (orderChannel) {
+                orderChannel.basicPublish("", "orders", null, gson.toJson(order).getBytes());
+            }
+        }));
 
         channel.basicConsume(tradeQueue, true, onTrade, tag -> {});
         channel.basicConsume(bookQueue, true, onBook, tag -> {});
