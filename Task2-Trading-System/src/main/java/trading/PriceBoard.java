@@ -31,6 +31,19 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
+import com.formdev.flatlaf.FlatDarkLaf;
+import java.awt.Color;
+import java.awt.Font;
+import javax.swing.UIManager;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.GridLayout;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.border.EmptyBorder;
 
 public class PriceBoard {
     private static final Map<String, String> NAMES = Map.of(
@@ -79,7 +92,84 @@ public class PriceBoard {
         }
     }
 
+    private static JLabel createStockCard(
+        String title, String value) {
+
+        JLabel label = new JLabel(
+            "<html><span style='font-size:11px;color:#94A3B8;'>"
+            + title
+            + "</span><br><br>"
+            + "<span style='font-size:22px;color:#F8FAFC;'>"
+            + value
+            + "</span></html>"
+        );
+
+        label.setOpaque(true);
+        label.setBackground(new Color(30, 41, 59));
+        label.setBorder(new EmptyBorder(18, 20, 18, 20));
+
+    return label;
+    }
+
+    private static void refreshDashboardCards(
+            JLabel xyzCard,
+            JLabel torrCard,
+            JLabel tradesCard,
+            DefaultTableModel latestModel,
+            DefaultTableModel historyModel) {
+
+        for (int i = 0; i < latestModel.getRowCount(); i++) {
+            String symbol = latestModel.getValueAt(i, 0).toString();
+            Object rawPrice = latestModel.getValueAt(i, 2);
+            String price;
+
+            if (rawPrice instanceof Number) {
+                price = String.format("$%.2f", ((Number) rawPrice).doubleValue());
+            } else {
+                try {
+                    price = String.format("$%.2f",
+                            Double.parseDouble(rawPrice.toString()));
+                } catch (NumberFormatException ex) {
+                    price = "—";
+                }
+            }
+
+            if (symbol.equals("XYZ")) {
+                xyzCard.setText(cardHtml("XYZ / LAST PRICE", price));
+            } else if (symbol.equals("TORR")) {
+                torrCard.setText(cardHtml("TORR / LAST PRICE", price));
+            }
+        }
+
+        tradesCard.setText(cardHtml(
+            "TOTAL TRADES",
+            String.valueOf(historyModel.getRowCount())
+        ));
+    }
+
+    private static String cardHtml(String title, String value) {
+        return "<html><span style='font-size:11px;color:#94A3B8;'>"
+            + title
+            + "</span><br><br>"
+            + "<span style='font-size:22px;color:#F8FAFC;'>"
+            + value
+            + "</span></html>";
+    }
+
     public static void main(String[] args) throws Exception {
+        FlatDarkLaf.setup();
+        UIManager.put("Panel.background", new Color(16, 24, 39));
+        UIManager.put("Table.background", new Color(30, 41, 59));
+        UIManager.put("Table.foreground", new Color(248, 250, 252));
+        UIManager.put("Table.selectionBackground", new Color(51, 65, 85));
+        UIManager.put("Table.gridColor", new Color(51, 65, 85));
+        UIManager.put("Table.font", new Font("SansSerif", Font.PLAIN, 13));
+        UIManager.put("Table.rowHeight", 32);
+        UIManager.put("TableHeader.background", new Color(30, 41, 59));
+        UIManager.put("TableHeader.foreground", new Color(148, 163, 184));
+        UIManager.put("TabbedPane.background", new Color(16, 24, 39));
+        UIManager.put("TabbedPane.foreground", new Color(248, 250, 252));
+        UIManager.put("ScrollPane.background", new Color(30, 41, 59));
         int port = Integer.parseInt(args[0]);
 
         Map<String, String> previousCloses = loadPreviousCloses();
@@ -118,9 +208,70 @@ public class PriceBoard {
             tabs.addTab("Chart", chart);
             tabs.addTab("Order book", depth);
 
-            JFrame frame = new JFrame("Trading board");
-            frame.add(tabs);
-            frame.setSize(720, 520);
+            
+            JFrame frame = new JFrame("PBT205 | Trading Terminal");
+
+            JPanel dashboard = new JPanel(new BorderLayout(0, 18));
+            dashboard.setBorder(new EmptyBorder(20, 24, 20, 24));
+
+            JLabel heading = new JLabel("TRADING TERMINAL");
+            heading.setFont(new Font("SansSerif", Font.BOLD, 24));
+            heading.setForeground(new Color(248, 250, 252));
+
+            JLabel subtitle = new JLabel(
+                "Market Overview  |  PBT205 Trading System"
+            );
+            subtitle.setForeground(new Color(148, 163, 184));
+
+            JPanel headerText = new JPanel();
+            headerText.setLayout(
+                new BoxLayout(headerText, BoxLayout.Y_AXIS)
+            );
+            headerText.add(heading);
+            headerText.add(Box.createVerticalStrut(5));
+            headerText.add(subtitle);
+
+            JPanel cards = new JPanel(new GridLayout(1, 3, 12, 0));
+            JLabel xyzCard = createStockCard(
+                "XYZ / LAST PRICE", "Awaiting trade"
+            );
+            JLabel torrCard = createStockCard(
+                "TORR / LAST PRICE", "Awaiting trade"
+            );
+            JLabel tradesCard = createStockCard(
+                "TOTAL TRADES", "0"
+            );
+
+            cards.add(xyzCard);
+            cards.add(torrCard);
+            cards.add(tradesCard);
+
+
+            Runnable refreshCards = () -> refreshDashboardCards(
+                xyzCard,
+                torrCard,
+                tradesCard,
+                latestModel,
+                historyModel
+        );
+
+latestModel.addTableModelListener(e -> refreshCards.run());
+historyModel.addTableModelListener(e -> refreshCards.run());
+
+refreshCards.run();
+
+
+            JPanel topSection = new JPanel(new BorderLayout(0, 16));
+            topSection.add(headerText, BorderLayout.NORTH);
+            topSection.add(cards, BorderLayout.CENTER);
+
+            dashboard.add(topSection, BorderLayout.NORTH);
+            dashboard.add(tabs, BorderLayout.CENTER);
+
+            frame.setContentPane(dashboard);
+
+            frame.setSize(1100, 750);
+            frame.setLocationRelativeTo(null);
             frame.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosing(WindowEvent e) {

@@ -1,12 +1,8 @@
+
 package trading;
 
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.*;
+import java.awt.geom.Path2D;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,121 +10,257 @@ import java.util.Map;
 import javax.swing.JPanel;
 
 public class LineChart extends JPanel {
+
     private static final int MAX_POINTS = 100;
+
+    private static final Color BACKGROUND = new Color(16, 24, 39);
+    private static final Color PANEL = new Color(30, 41, 59);
+    private static final Color GRID = new Color(51, 65, 85);
+    private static final Color TEXT = new Color(148, 163, 184);
+    private static final Color WHITE = new Color(248, 250, 252);
+
     private static final Color[] COLORS = {
-        new Color(0xFF6600), new Color(0x1F77B4), new Color(0x2CA02C), new Color(0x9467BD)};
+            new Color(16, 185, 129),
+            new Color(56, 189, 248),
+            new Color(250, 204, 21),
+            new Color(168, 85, 247)
+    };
 
     private final Map<String, List<Double>> series = new LinkedHashMap<>();
 
     public LineChart() {
-        setBackground(Color.WHITE);
+        setBackground(BACKGROUND);
+        setOpaque(true);
     }
 
     public synchronized void addPoint(String name, double value) {
         List<Double> points = series.computeIfAbsent(name, k -> new ArrayList<>());
+
         points.add(value);
+
         if (points.size() > MAX_POINTS) {
             points.remove(0);
         }
+
         repaint();
     }
 
     @Override
     protected synchronized void paintComponent(Graphics g) {
         super.paintComponent(g);
+
         Graphics2D g2 = (Graphics2D) g.create();
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        FontMetrics fm = g2.getFontMetrics();
 
-        int w = getWidth();
-        int h = getHeight();
-        int left = 60;
-        int right = 20;
-        int top = 36;
-        int bottom = 28;
-        int gap = 22;
-        int plotW = w - left - right;
+        try {
+            g2.setRenderingHint(
+                    RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
 
-        g2.setColor(Color.DARK_GRAY);
-        g2.setFont(g2.getFont().deriveFont(Font.BOLD, 14f));
-        g2.drawString("Trade prices", left, 22);
-        g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
+            int width = getWidth();
+            int height = getHeight();
 
-        int count = series.size();
-        if (count == 0 || plotW <= 0) {
-            g2.setColor(Color.GRAY);
-            g2.drawString("No trades yet", left + 10, top + 30);
-            g2.dispose();
-            return;
-        }
+            g2.setColor(WHITE);
+            g2.setFont(new Font("SansSerif", Font.BOLD, 18));
+            g2.drawString("PRICE HISTORY", 30, 35);
 
-        int panelH = (h - top - bottom - gap * (count - 1)) / count;
-        if (panelH <= 20) {
-            g2.dispose();
-            return;
-        }
+            g2.setColor(TEXT);
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            g2.drawString(
+                    "Historical executed trade prices", 30, 55);
 
-        int idx = 0;
-        for (Map.Entry<String, List<Double>> e : series.entrySet()) {
-            Color c = COLORS[idx % COLORS.length];
-            List<Double> pts = e.getValue();
-            int y0 = top + idx * (panelH + gap);
-
-            double min = Double.MAX_VALUE;
-            double max = -Double.MAX_VALUE;
-            for (double v : pts) {
-                min = Math.min(min, v);
-                max = Math.max(max, v);
+            if (series.isEmpty()) {
+                g2.setColor(TEXT);
+                g2.drawString(
+                        "Waiting for trading activity...",
+                        40, Math.max(100, height / 2));
+                return;
             }
-            if (max - min < 0.5) {
-                double mid = (max + min) / 2;
-                min = mid - 0.25;
-                max = mid + 0.25;
+
+            int left = 85;
+            int right = 65;
+            int top = 95;
+            int bottom = 40;
+            int gap = 35;
+
+            int plotWidth = width - left - right;
+            int count = series.size();
+            int panelHeight = (height - top - bottom - gap * (count - 1))
+                    / count;
+
+            if (plotWidth <= 20 || panelHeight <= 30) {
+                return;
             }
-            double pad = (max - min) * 0.1;
-            min -= pad;
-            max += pad;
 
-            g2.setStroke(new BasicStroke(1f));
-            for (int i = 0; i <= 2; i++) {
-                int y = y0 + panelH - (int) Math.round(panelH * i / 2.0);
-                g2.setColor(new Color(0xE5E5E5));
-                g2.drawLine(left, y, left + plotW, y);
-                g2.setColor(Color.GRAY);
-                String label = String.format("%.2f", min + (max - min) * i / 2.0);
-                g2.drawString(label, left - 8 - fm.stringWidth(label), y + 4);
-            }
-            g2.setColor(Color.GRAY);
-            g2.drawRect(left, y0, plotW, panelH);
+            int index = 0;
 
-            g2.setColor(c);
-            g2.fillRect(left + 8, y0 + 8, 10, 10);
-            g2.setColor(Color.DARK_GRAY);
-            g2.drawString(e.getKey(), left + 24, y0 + 18);
+            for (Map.Entry<String, List<Double>> entry : series.entrySet()) {
 
-            g2.setColor(c);
-            g2.setStroke(new BasicStroke(2f));
-            int n = pts.size();
-            int prevX = 0;
-            int prevY = 0;
-            for (int i = 0; i < n; i++) {
-                int x = n == 1 ? left + plotW / 2 : left + (int) Math.round(plotW * i / (double) (n - 1));
-                int y = y0 + panelH - (int) Math.round((pts.get(i) - min) / (max - min) * panelH);
-                if (i > 0) {
-                    g2.drawLine(prevX, prevY, x, y);
+                String symbol = entry.getKey();
+                List<Double> points = entry.getValue();
+
+                if (points.isEmpty()) {
+                    continue;
                 }
-                g2.fillOval(x - 3, y - 3, 6, 6);
-                prevX = x;
-                prevY = y;
-            }
-            idx++;
-        }
 
-        g2.setColor(Color.GRAY);
-        g2.drawString("older", left, h - 8);
-        String newest = "newest";
-        g2.drawString(newest, left + plotW - fm.stringWidth(newest), h - 8);
-        g2.dispose();
+                Color accent = COLORS[index % COLORS.length];
+                int yTop = top + index * (panelHeight + gap);
+
+                g2.setColor(PANEL);
+                g2.fillRoundRect(
+                        left - 15,
+                        yTop - 25,
+                        plotWidth + 40,
+                        panelHeight + 40,
+                        14,
+                        14);
+
+                double min = Double.POSITIVE_INFINITY;
+                double max = Double.NEGATIVE_INFINITY;
+
+                for (double value : points) {
+                    min = Math.min(min, value);
+                    max = Math.max(max, value);
+                }
+
+                if (max - min < 0.5) {
+                    double mid = (min + max) / 2.0;
+                    min = mid - 0.25;
+                    max = mid + 0.25;
+                }
+
+                double padding = (max - min) * 0.1;
+                min -= padding;
+                max += padding;
+
+                g2.setFont(
+                        new Font("SansSerif", Font.BOLD, 13));
+                g2.setColor(accent);
+                g2.drawString(symbol, left, yTop - 7);
+
+                double latest = points.get(points.size() - 1);
+
+                String latestText = String.format("$%.2f", latest);
+
+                FontMetrics metrics = g2.getFontMetrics();
+                g2.drawString(
+                        latestText,
+                        left + plotWidth
+                                - metrics.stringWidth(latestText),
+                        yTop - 7);
+
+                g2.setFont(
+                        new Font("SansSerif", Font.PLAIN, 11));
+
+                for (int i = 0; i <= 4; i++) {
+                    int y = yTop + panelHeight
+                            - (int) Math.round(
+                                    panelHeight * i / 4.0);
+
+                    g2.setColor(GRID);
+                    g2.setStroke(new BasicStroke(1f));
+                    g2.drawLine(
+                            left, y,
+                            left + plotWidth, y);
+
+                    String label = String.format(
+                            "%.2f",
+                            min + (max - min) * i / 4.0);
+
+                    g2.setColor(TEXT);
+                    g2.drawString(
+                            label,
+                            left - 12
+                                    - g2.getFontMetrics()
+                                            .stringWidth(label),
+                            y + 4);
+                }
+
+                Path2D line = new Path2D.Double();
+                Path2D area = new Path2D.Double();
+
+                int n = points.size();
+                int lastX = left;
+                int lastY = yTop + panelHeight;
+
+                for (int i = 0; i < n; i++) {
+                    int x = n == 1
+                            ? left + plotWidth / 2
+                            : left + (int) Math.round(
+                                    plotWidth * i / (double) (n - 1));
+
+                    int y = yTop + panelHeight
+                            - (int) Math.round(
+                                    (points.get(i) - min)
+                                            / (max - min) * panelHeight);
+
+                    if (i == 0) {
+                        line.moveTo(x, y);
+                        area.moveTo(x, yTop + panelHeight);
+                        area.lineTo(x, y);
+                    } else {
+                        line.lineTo(x, y);
+                        area.lineTo(x, y);
+                    }
+
+                    lastX = x;
+                    lastY = y;
+                }
+
+                area.lineTo(lastX, yTop + panelHeight);
+                area.closePath();
+
+                g2.setColor(new Color(
+                        accent.getRed(),
+                        accent.getGreen(),
+                        accent.getBlue(),
+                        35));
+                g2.fill(area);
+
+                g2.setColor(accent);
+                g2.setStroke(
+                        new BasicStroke(
+                                2.5f,
+                                BasicStroke.CAP_ROUND,
+                                BasicStroke.JOIN_ROUND));
+                g2.draw(line);
+
+                // Draw markers for every executed trade
+                for (int i = 0; i < n; i++) {
+                    int x = n == 1
+                            ? left + plotWidth / 2
+                            : left + (int) Math.round(
+                                    plotWidth * i / (double) (n - 1));
+
+                    int y = yTop + panelHeight
+                            - (int) Math.round(
+                                    (points.get(i) - min)
+                                            / (max - min) * panelHeight);
+
+                    g2.setColor(accent);
+                    g2.fillOval(x - 4, y - 4, 8, 8);
+                }
+
+                g2.setColor(TEXT);
+                g2.setFont(
+                        new Font("SansSerif", Font.PLAIN, 11));
+                g2.drawString(
+                        "Older trades",
+                        left,
+                        yTop + panelHeight + 23);
+
+                String newest = "Latest trades";
+                g2.drawString(
+                        newest,
+                        left + plotWidth
+                                - g2.getFontMetrics()
+                                        .stringWidth(newest),
+                        yTop + panelHeight + 23);
+
+                index++;
+            }
+
+        } finally {
+            g2.dispose();
+        }
     }
 }

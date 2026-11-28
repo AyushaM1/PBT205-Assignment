@@ -1,5 +1,10 @@
 package trading;
 
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Font;
+import javax.swing.SwingConstants;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.BorderLayout;
 import java.awt.GridLayout;
 import java.util.HashMap;
@@ -35,11 +40,57 @@ public class DepthPanel extends JPanel {
         bySymbol.put(symbol, m);
         JPanel panel = new JPanel(new GridLayout(1, 2, 6, 0));
         panel.setBorder(BorderFactory.createTitledBorder(symbol + " order book"));
-        panel.add(new JScrollPane(new JTable(m.bids)));
-        panel.add(new JScrollPane(new JTable(m.asks)));
+        panel.add(new JScrollPane(createStyledTable(m.bids, true)));
+        panel.add(new JScrollPane(createStyledTable(m.asks, false)));
         add(panel, BorderLayout.CENTER);
         revalidate();
         return m;
+    }
+
+    private static JTable createStyledTable(
+            DefaultTableModel model, boolean isBid) {
+
+        JTable table = new JTable(model);
+
+        table.setRowHeight(34);
+        table.setShowGrid(false);
+        table.setFillsViewportHeight(true);
+        table.setBackground(new Color(30, 41, 59));
+        table.setForeground(new Color(248, 250, 252));
+
+        Color accent = isBid
+                ? new Color(16, 185, 129)
+                : new Color(244, 63, 94);
+
+        DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable t, Object value,
+                    boolean selected, boolean focused,
+                    int row, int column) {
+
+                super.getTableCellRendererComponent(
+                        t, value, selected, focused, row, column);
+
+                setForeground(column == 0
+                        ? accent
+                        : new Color(248, 250, 252));
+
+                setBackground(selected
+                        ? new Color(51, 65, 85)
+                        : new Color(30, 41, 59));
+
+                setHorizontalAlignment(SwingConstants.CENTER);
+                return this;
+            }
+        };
+
+        for (int i = 0; i < table.getColumnCount(); i++) {
+            table.getColumnModel().getColumn(i)
+                    .setCellRenderer(renderer);
+        }
+
+        return table;
     }
 
     public void update(BookSnapshot snap) {
