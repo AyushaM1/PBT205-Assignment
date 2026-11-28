@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -26,6 +27,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JFrame;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
@@ -98,7 +100,11 @@ public class PriceBoard {
             rowOf.put(symbol, latestModel.getRowCount() - 1);
         }
 
-        SwingUtilities.invokeLater(() -> {
+        LineChart chart = new LineChart();
+        DepthPanel depth = new DepthPanel(new ArrayList<>(symbols));
+        DateTimeFormatter clock = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
+
+        SwingUtilities.invokeAndWait(() -> {
             JScrollPane latestPane = new JScrollPane(new JTable(latestModel));
             latestPane.setBorder(BorderFactory.createTitledBorder("Latest price"));
             JScrollPane historyPane = new JScrollPane(new JTable(historyModel));
@@ -107,9 +113,14 @@ public class PriceBoard {
             JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, latestPane, historyPane);
             split.setResizeWeight(0.3);
 
+            JTabbedPane tabs = new JTabbedPane();
+            tabs.addTab("Prices", split);
+            tabs.addTab("Chart", chart);
+            tabs.addTab("Order book", depth);
+
             JFrame frame = new JFrame("Trading board");
-            frame.add(split);
-            frame.setSize(680, 460);
+            frame.add(tabs);
+            frame.setSize(720, 520);
             frame.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosing(WindowEvent e) {
@@ -120,6 +131,13 @@ public class PriceBoard {
             frame.setVisible(true);
         });
 
+        Persistence store = new Persistence(Path.of("."));
+        SwingUtilities.invokeLater(() -> {
+            for (Trade t : store.loadTrades(MAX_HISTORY)) {
+                showTrade(t, clock, latestModel, historyModel, rowOf, chart);
+            }
+        });
+
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
         factory.setPort(port);
@@ -127,36 +145,47 @@ public class PriceBoard {
         Connection conn = factory.newConnection();
         Channel channel = conn.createChannel();
         channel.exchangeDeclare("trades", BuiltinExchangeType.FANOUT, true);
-        String queue = channel.queueDeclare().getQueue();
-        channel.queueBind(queue, "trades", "");
+        channel.exchangeDeclare("book", BuiltinExchangeType.FANOUT, true);
+        String tradeQueue = channel.queueDeclare().getQueue();
+        channel.queueBind(tradeQueue, "trades", "");
+        String bookQueue = channel.queueDeclare().getQueue();
+        channel.queueBind(bookQueue, "book", "");
 
         Gson gson = new Gson();
-        DateTimeFormatter clock = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
 
         DeliverCallback onTrade = (tag, delivery) -> {
             Trade trade = gson.fromJson(new String(delivery.getBody()), Trade.class);
-            String time = clock.format(Instant.ofEpochMilli(trade.time()));
             lastPrice.put(trade.symbol(), trade.price());
-
-            SwingUtilities.invokeLater(() -> {
-                Integer row = rowOf.get(trade.symbol());
-                if (row == null) {
-                    latestModel.addRow(new Object[] {
-                        trade.symbol(), NAMES.getOrDefault(trade.symbol(), trade.symbol()),
-                        trade.price(), "-"});
-                    rowOf.put(trade.symbol(), latestModel.getRowCount() - 1);
-                } else {
-                    latestModel.setValueAt(trade.price(), row, 2);
-                }
-
-                historyModel.insertRow(0, new Object[] {
-                    time, trade.symbol(), trade.price(), trade.qty(), trade.buyer(), trade.seller()});
-                if (historyModel.getRowCount() > MAX_HISTORY) {
-                    historyModel.removeRow(historyModel.getRowCount() - 1);
-                }
-            });
+            SwingUtilities.invokeLater(() ->
+                showTrade(trade, clock, latestModel, historyModel, rowOf, chart));
         };
 
-        channel.basicConsume(queue, true, onTrade, tag -> {});
+        DeliverCallback onBook = (tag, delivery) -> {
+            BookSnapshot snap = gson.fromJson(new String(delivery.getBody()), BookSnapshot.class);
+            SwingUtilities.invokeLater(() -> depth.update(snap));
+        };
+
+        channel.basicConsume(tradeQueue, true, onTrade, tag -> {});
+        channel.basicConsume(bookQueue, true, onBook, tag -> {});
+    }
+
+    private static void showTrade(Trade trade, DateTimeFormatter clock, DefaultTableModel latestModel,
+                                  DefaultTableModel historyModel, Map<String, Integer> rowOf, LineChart chart) {
+        String time = clock.format(Instant.ofEpochMilli(trade.time()));
+        Integer row = rowOf.get(trade.symbol());
+        if (row == null) {
+            latestModel.addRow(new Object[] {
+                trade.symbol(), NAMES.getOrDefault(trade.symbol(), trade.symbol()), trade.price(), "-"});
+            rowOf.put(trade.symbol(), latestModel.getRowCount() - 1);
+        } else {
+            latestModel.setValueAt(trade.price(), row, 2);
+        }
+
+        historyModel.insertRow(0, new Object[] {
+            time, trade.symbol(), trade.price(), trade.qty(), trade.buyer(), trade.seller()});
+        if (historyModel.getRowCount() > MAX_HISTORY) {
+            historyModel.removeRow(historyModel.getRowCount() - 1);
+        }
+        chart.addPoint(trade.symbol(), trade.price());
     }
 }
